@@ -4,6 +4,10 @@ Your container won't start, a port won't bind, or a mount fails with
 `read-only file system`. **dockdoctor** checks your Docker and Compose setup
 for the usual causes, then prints the reason and the command that fixes it.
 
+![dockdoctor finding a restart loop, a busy port, a missing config file and an unset variable](docs/demo.gif)
+
+The full output of a run:
+
 ```text
 $ dockdoctor
 dockdoctor Docker 29.9.2 on Docker Desktop · Compose 5.6.1 · project "demo" (compose.yaml) · 4 containers
@@ -27,7 +31,7 @@ dockdoctor Docker 29.9.2 on Docker Desktop · Compose 5.6.1 · project "demo" (c
     # stop that program, or publish the service on another host port
 
 ✗ ./nginx.conf doesn't exist, so Docker will create it as a directory (web)
-  When a bind mount source is missing, Docker creates an empty directory there. The app then finds a folder where it expects a file and fails with `is a directory` or `not a directory`.
+  Docker turns a missing bind mount source into an empty directory, so the app finds a folder where it expects a file (`is a directory`).
   Fix:
     # remove the directory Docker created (if any), then create the real file:
     sudo rmdir ./nginx.conf 2>/dev/null; touch ./nginx.conf

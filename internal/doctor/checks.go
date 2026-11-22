@@ -530,7 +530,7 @@ func checkBindMounts(f *Facts) ([]Finding, bool) {
 				findings = append(findings, Finding{
 					Severity: Fail,
 					Title:    fmt.Sprintf("%s doesn't exist, so Docker will create it as a directory (%s)", shown, name),
-					Why:      "When a bind mount source is missing, Docker creates an empty directory there. The app then finds a folder where it expects a file and fails with `is a directory` or `not a directory`.",
+					Why:      "Docker turns a missing bind mount source into an empty directory, so the app finds a folder where it expects a file (`is a directory`).",
 					Fix: []string{
 						"# remove the directory Docker created (if any), then create the real file:",
 						"sudo rmdir " + shown + " 2>/dev/null; touch " + shown,
