@@ -1,16 +1,31 @@
 # dockdoctor
 
-Your container won't start, a port won't bind, or a mount fails with
-`read-only file system`. **dockdoctor** checks your Docker and Compose setup
-for the usual causes, then prints the reason and the command that fixes it.
+**Find out why your Docker setup is broken, and get the command that fixes it.**
+
+[![test](https://github.com/supremeinferno/dockdoctor/actions/workflows/test.yml/badge.svg)](https://github.com/supremeinferno/dockdoctor/actions/workflows/test.yml)
+[![release](https://img.shields.io/github/v/release/supremeinferno/dockdoctor)](https://github.com/supremeinferno/dockdoctor/releases/latest)
+[![license](https://img.shields.io/github/license/supremeinferno/dockdoctor)](LICENSE)
+
+Your container won't start, a port won't bind, or a mount fails with `read-only file system`, and the error
+doesn't say why. Run `dockdoctor` in the folder with your `compose.yaml`: it checks for the usual causes and
+prints the reason and the fix for each one.
 
 ![dockdoctor finding a restart loop, a busy port, a missing config file and an unset variable](docs/demo.gif)
 
-The full output of a run:
+```sh
+curl -fsSL https://raw.githubusercontent.com/supremeinferno/dockdoctor/main/install.sh | sh
+```
+
+- **Read-only.** It never starts, stops or changes anything. It runs `docker info`, `docker inspect` and `docker compose config`, reads a few files, and briefly tries each published port to see if it's free.
+- **One binary, no dependencies.** Linux and macOS, amd64 and arm64.
+- **Fixes, not just warnings.** Every finding says why it breaks things and gives a command you can copy.
+
+<details>
+<summary>Full output of a run against a Compose project broken on purpose</summary>
 
 ```text
 $ dockdoctor
-dockdoctor Docker 29.9.2 on Docker Desktop · Compose 5.6.1 · project "demo" (compose.yaml) · 4 containers
+dockdoctor Docker 29.9.2 on Docker Desktop · Compose 5.6.1 · project "demo" (compose.yaml) · 5 containers
 
 ✗ demo-worker-1 is in a restart loop
   It has restarted 8 times and isn't staying up. Exit code 127: the entrypoint or command wasn't found in the image.
@@ -23,6 +38,11 @@ dockdoctor Docker 29.9.2 on Docker Desktop · Compose 5.6.1 · project "demo" (c
     docker stats --no-stream demo-hog-1
     # raise or remove its memory limit (mem_limit / deploy.resources.limits.memory), or add RAM or swap
   Docs: https://docs.docker.com/engine/containers/resource_constraints/
+
+✗ myapp-api-1 is in a restart loop
+  It has restarted 8 times and isn't staying up. Exit code 127: the entrypoint or command wasn't found in the image.
+  Fix:
+    docker logs --tail 50 myapp-api-1
 
 ✗ Port 8080 is already in use (needed by web)
   Something else on this machine is listening on it, so the container fails with `bind: address already in use`.
@@ -50,30 +70,30 @@ dockdoctor Docker 29.9.2 on Docker Desktop · Compose 5.6.1 · project "demo" (c
     DB_PASSWORD=...
   Docs: https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/
 
-4 passed · 4 problems · 2 warnings · 5 skipped
+6 passed · 5 problems · 2 warnings · 5 skipped
 ```
 
-That's a real run against a Compose project broken on purpose (on Linux the port fix uses `ss` instead of `lsof`).
-It only reads. It never starts, stops or changes anything.
+On Linux the port fix uses `ss` instead of `lsof`. In a terminal, long lines wrap to its width.
+
+</details>
 
 ## Install
-
-Linux and macOS:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/supremeinferno/dockdoctor/main/install.sh | sh
 ```
 
-This puts a single binary in `/usr/local/bin` (or `~/.local/bin` if that isn't writable). You can also
-download it from [Releases](https://github.com/supremeinferno/dockdoctor/releases), or, with Go 1.25+:
+The script picks the binary for your OS and CPU from the [latest release](https://github.com/supremeinferno/dockdoctor/releases/latest) and puts it in
+`/usr/local/bin`, or `~/.local/bin` when that isn't writable. Want to read it first? It's
+[short](install.sh). Each release also has a `checksums.txt`.
+
+With Go 1.25 or newer:
 
 ```sh
 go install github.com/supremeinferno/dockdoctor@latest
 ```
 
 ## Use
-
-Run it in the folder with your `compose.yaml`:
 
 ```sh
 dockdoctor                         # check Docker, your containers and the Compose file here
@@ -82,7 +102,7 @@ dockdoctor -v                      # also list what passed and what was skipped
 dockdoctor -json                   # machine-readable, for scripts and coding agents
 ```
 
-The exit code is `1` when it finds a problem, so you can use it in CI or before `docker compose up`.
+The exit code is `1` when it finds a problem, so you can run it in CI or before `docker compose up`.
 
 ## What it checks
 
@@ -104,9 +124,18 @@ The exit code is `1` when it finds a problem, so you can use it in CI or before 
 | **Bind mount sources** | A missing `./config.yml` becomes an empty root-owned *directory* |
 | **Rootless ports** | Rootless Docker can't publish ports below 1024 without a sysctl |
 
-Every check comes from a real problem people ran into and asked about. If dockdoctor missed what broke your
-setup, [open an issue](https://github.com/supremeinferno/dockdoctor/issues/new) with the error message: that's
-how new checks get added.
+Every check comes from a problem people actually ran into and asked about.
+
+## Missing the problem you hit?
+
+That's how new checks get added. [Open an issue](https://github.com/supremeinferno/dockdoctor/issues/new) with the error message and what turned out
+to be the cause.
+
+Want to write one? Each check is a small Go function with table tests, in
+[`internal/doctor`](internal/doctor). Good places to start:
+
+- [Issues labelled `good first issue`](https://github.com/supremeinferno/dockdoctor/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+- [Ideas for new checks](https://github.com/supremeinferno/dockdoctor/issues?q=is%3Aissue+is%3Aopen+label%3A%22new+check%22)
 
 ## License
 

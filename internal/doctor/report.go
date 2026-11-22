@@ -50,6 +50,7 @@ func (f *Facts) Summary() string {
 type Style struct {
 	Color   bool
 	Verbose bool // also list the checks that passed or were skipped
+	Width   int  // wrap explanations to this many columns; 0 means don't wrap
 }
 
 func (s Style) paint(code, text string) string {
@@ -67,13 +68,23 @@ var marks = map[Severity]struct{ symbol, color string }{
 
 // WriteText prints the report for a terminal.
 func WriteText(w io.Writer, f *Facts, r Result, s Style) {
-	fmt.Fprintf(w, "%s %s\n\n", s.paint("1", "dockdoctor"), s.paint("2", f.Summary()))
+	const name = "dockdoctor "
+	for i, part := range wrap(f.Summary(), s.Width-len(name)) {
+		lead := s.paint("1", strings.TrimSpace(name)) + " "
+		if i > 0 {
+			lead = strings.Repeat(" ", len(name))
+		}
+		fmt.Fprintf(w, "%s%s\n", lead, s.paint("2", part))
+	}
+	fmt.Fprintln(w)
 
 	for _, fd := range r.Findings {
 		m := marks[fd.Severity]
 		fmt.Fprintf(w, "%s %s\n", s.paint(m.color+";1", m.symbol), s.paint("1", fd.Title))
 		for _, line := range strings.Split(fd.Why, "\n") {
-			fmt.Fprintf(w, "  %s\n", line)
+			for _, part := range wrap(line, s.Width-2) {
+				fmt.Fprintf(w, "  %s\n", part)
+			}
 		}
 		if len(fd.Fix) > 0 {
 			fmt.Fprintf(w, "  %s\n", s.paint("32", "Fix:"))
@@ -158,4 +169,27 @@ func (r Result) HasFailures() bool {
 		}
 	}
 	return false
+}
+
+// wrap breaks text at spaces so no line is longer than width. A single word
+// longer than width (a path or a URL) stays whole. Width below 20 disables it.
+func wrap(text string, width int) []string {
+	if width < 20 || len([]rune(text)) <= width {
+		return []string{text}
+	}
+	var lines []string
+	var line []rune
+	for _, word := range strings.Fields(text) {
+		w := []rune(word)
+		switch {
+		case len(line) == 0:
+			line = w
+		case len(line)+1+len(w) <= width:
+			line = append(append(line, ' '), w...)
+		default:
+			lines = append(lines, string(line))
+			line = w
+		}
+	}
+	return append(lines, string(line))
 }

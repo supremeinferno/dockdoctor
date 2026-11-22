@@ -57,10 +57,15 @@ func run(args []string, stdout, stderr io.Writer, sys doctor.System) int {
 			return 2
 		}
 	} else {
-		doctor.WriteText(stdout, facts, result, doctor.Style{
-			Color:   !*noColor && os.Getenv("NO_COLOR") == "" && isTerminal(stdout),
+		tty := isTerminal(stdout)
+		style := doctor.Style{
+			Color:   !*noColor && os.Getenv("NO_COLOR") == "" && tty,
 			Verbose: *verbose,
-		})
+		}
+		if tty {
+			style.Width = terminalWidth(stdout.(*os.File))
+		}
+		doctor.WriteText(stdout, facts, result, style)
 	}
 	if result.HasFailures() {
 		return 1

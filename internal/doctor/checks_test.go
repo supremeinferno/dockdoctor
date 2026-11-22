@@ -307,3 +307,20 @@ func TestFailuresSortFirst(t *testing.T) {
 		t.Fatalf("order = %+v", r.Findings)
 	}
 }
+
+func TestWrap(t *testing.T) {
+	got := wrap("Docker turns a missing bind mount source into an empty directory", 24)
+	want := []string{"Docker turns a missing", "bind mount source into", "an empty directory"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("wrap = %q, want %q", got, want)
+	}
+	long := "see /var/snap/docker/common/var-lib-docker/containers for details"
+	for _, line := range wrap(long, 20) {
+		if strings.Contains(line, "/var/snap") && line != "/var/snap/docker/common/var-lib-docker/containers" {
+			t.Errorf("a long path was split or joined: %q", line)
+		}
+	}
+	if got := wrap("short", 0); len(got) != 1 {
+		t.Errorf("width 0 wrapped: %q", got)
+	}
+}
