@@ -1,0 +1,32 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+      # A real run on a real Docker host. It may report problems (exit 1);
+      # what matters is that it doesn't crash (exit 2 or a panic).
+      - name: Run against the runner's Docker
+        if: runner.os == 'Linux'
+        run: |
+          go build -o dockdoctor .
+          ./dockdoctor -v || [ $? -eq 1 ]
+          ./dockdoctor -json > report.json || [ $? -eq 1 ]
+          python3 -m json.tool report.json > /dev/null
