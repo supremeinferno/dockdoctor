@@ -61,7 +61,7 @@ curl -fsSL https://raw.githubusercontent.com/supremeinferno/dockdoctor/main/inst
 ```
 
 This puts a single binary in `/usr/local/bin` (or `~/.local/bin` if that isn't writable). You can also
-download it from [Releases](https://github.com/supremeinferno/dockdoctor/releases), or, with Go 1.22+:
+download it from [Releases](https://github.com/supremeinferno/dockdoctor/releases), or, with Go 1.25+:
 
 ```sh
 go install github.com/supremeinferno/dockdoctor@latest
