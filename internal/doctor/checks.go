@@ -41,7 +41,9 @@ var Checks = []Check{
 	{"snap", "Docker not installed as a snap", checkSnap},
 	{"compose", "Compose v2 installed", checkCompose},
 	{"disk", "Free space for Docker", checkDisk},
+	{"logs", "Container logs have a size limit", checkLogs},
 	{"restarts", "No containers in a restart loop", checkRestarts},
+	{"arch", "Images built for this CPU", checkArch},
 	{"health", "No unhealthy containers", checkHealth},
 	{"ufw", "Published ports not hidden from UFW", checkUFW},
 	{"compose-file", "Compose file valid", checkComposeFile},
@@ -227,7 +229,7 @@ func checkDisk(f *Facts) ([]Finding, bool) {
 	if f.DiskFree >= 5*gib && pct >= 10 {
 		return nil, true
 	}
-	return []Finding{{
+	fd := Finding{
 		Severity: Warn,
 		Title:    fmt.Sprintf("Low disk space for Docker: %.1f GiB free (%.0f%%)", float64(f.DiskFree)/gib, pct),
 		Why:      "Docker keeps images, containers and volumes in " + f.Info.DockerRootDir + ". When it fills up, pulls fail, databases crash and containers can't write their logs.",
@@ -237,7 +239,18 @@ func checkDisk(f *Facts) ([]Finding, bool) {
 			"docker builder prune             # remove the build cache",
 		},
 		Docs: "https://docs.docker.com/engine/manage-resources/pruning/",
-	}}, true
+	}
+	if n := len(f.unboundedLogContainers()); n > 0 {
+		fd.Fix = append(fd.Fix, fmt.Sprintf("# and limit log size: %s no limit (see the logs finding)", pluralVerb(n, "container has", "containers have")))
+	}
+	return []Finding{fd}, true
+}
+
+func pluralVerb(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
+	}
+	return fmt.Sprintf("%d %s", n, many)
 }
 
 func checkRestarts(f *Facts) ([]Finding, bool) {
@@ -263,6 +276,9 @@ func checkRestarts(f *Facts) ([]Finding, bool) {
 			why := fmt.Sprintf("It has restarted %d times and isn't staying up. Exit code %d", c.RestartCount, c.State.ExitCode)
 			if hint := exitHint(c.State.ExitCode); hint != "" {
 				why += ": " + hint
+			}
+			if arch := f.containerArch(c); arch != "" {
+				why += fmt.Sprintf(". Its image is built for %s but this host is %s", arch, f.hostArch())
 			}
 			findings = append(findings, Finding{
 				Severity: Fail,

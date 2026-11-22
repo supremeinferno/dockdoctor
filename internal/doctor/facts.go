@@ -26,6 +26,8 @@ type System struct {
 	Run       func(ctx context.Context, name string, args ...string) (stdout, stderr string, err error)
 	LookPath  func(file string) (string, error)
 	ReadFile  func(name string) ([]byte, error)
+	ListDir   func(dir string) ([]string, error)
+	FileSize  func(path string) (int64, error)
 	Exists    func(path string) bool
 	PortInUse func(port int, proto string) bool
 	DiskUsage func(path string) (free, total uint64, err error)
@@ -48,6 +50,21 @@ func RealSystem() System {
 		},
 		LookPath: exec.LookPath,
 		ReadFile: os.ReadFile,
+		ListDir: func(dir string) ([]string, error) {
+			entries, err := os.ReadDir(dir)
+			names := make([]string, 0, len(entries))
+			for _, e := range entries {
+				names = append(names, e.Name())
+			}
+			return names, err
+		},
+		FileSize: func(path string) (int64, error) {
+			info, err := os.Stat(path)
+			if err != nil {
+				return 0, err
+			}
+			return info.Size(), nil
+		},
 		Exists: func(path string) bool {
 			_, err := os.Stat(path)
 			return err == nil
@@ -110,6 +127,10 @@ type Facts struct {
 
 	Containers []Container
 
+	Images   map[string]ImageInfo // by image ID and by every repo tag
+	Emulated map[string]bool      // architectures the host kernel can emulate (binfmt_misc)
+	LogSize  map[string]int64     // container log file sizes, by container name, when readable
+
 	ComposeFiles    []string
 	Project         *Project
 	ComposeErr      string
@@ -131,6 +152,7 @@ type DockerInfo struct {
 	DockerRootDir   string   `json:"DockerRootDir"`
 	SecurityOptions []string `json:"SecurityOptions"`
 	ServerErrors    []string `json:"ServerErrors"`
+	Architecture    string   `json:"Architecture"`
 }
 
 // Rootless reports whether the daemon runs in rootless mode.
@@ -145,7 +167,16 @@ func (i *DockerInfo) Rootless() bool {
 
 // Container holds the parts of `docker inspect` the checks use.
 type Container struct {
-	Name   string `json:"Name"`
+	Name    string `json:"Name"`
+	Image   string `json:"Image"` // image ID
+	LogPath string `json:"LogPath"`
+	// With the containerd image store, the platform the container actually
+	// runs is here; the image's own Architecture can be empty for multi-platform images.
+	ImageManifestDescriptor *struct {
+		Platform *struct {
+			Architecture string `json:"architecture"`
+		} `json:"platform"`
+	} `json:"ImageManifestDescriptor"`
 	Config struct {
 		Image  string            `json:"Image"`
 		Labels map[string]string `json:"Labels"`
@@ -164,7 +195,13 @@ type Container struct {
 			} `json:"Log"`
 		} `json:"Health"`
 	} `json:"State"`
-	RestartCount    int `json:"RestartCount"`
+	RestartCount int `json:"RestartCount"`
+	HostConfig   struct {
+		LogConfig struct {
+			Type   string            `json:"Type"`
+			Config map[string]string `json:"Config"`
+		} `json:"LogConfig"`
+	} `json:"HostConfig"`
 	NetworkSettings struct {
 		Ports map[string][]struct {
 			HostIP   string `json:"HostIp"`
@@ -176,6 +213,14 @@ type Container struct {
 // ShortName is the container name without Docker's leading slash.
 func (c Container) ShortName() string { return strings.TrimPrefix(c.Name, "/") }
 
+// ImageInfo holds the parts of `docker image inspect` the checks use.
+type ImageInfo struct {
+	ID           string   `json:"Id"`
+	RepoTags     []string `json:"RepoTags"`
+	Architecture string   `json:"Architecture"`
+	Variant      string   `json:"Variant"`
+}
+
 // Project is the parts of `docker compose config --format json` the checks use.
 type Project struct {
 	Name     string
@@ -184,6 +229,8 @@ type Project struct {
 
 // Service is one Compose service.
 type Service struct {
+	Image      string          `json:"image"`
+	Platform   string          `json:"platform"`
 	Ports      []Port          `json:"ports"`
 	Volumes    []Volume        `json:"volumes"`
 	ExtraHosts json.RawMessage `json:"extra_hosts"`
@@ -317,10 +364,19 @@ func Gather(ctx context.Context, sys System, composeFiles []string) *Facts {
 		gatherContainers(ctx, sys, f)
 	}
 	gatherProject(ctx, sys, f, composeFiles)
+	if f.Info != nil {
+		gatherImages(ctx, sys, f)
+		gatherLogSizes(sys, f)
+	}
 
 	if sys.GOOS == "linux" {
 		if data, err := sys.ReadFile("/etc/ufw/ufw.conf"); err == nil {
 			f.UFWEnabled = ufwEnabled(string(data))
+		}
+		if sys.ListDir != nil {
+			if names, err := sys.ListDir("/proc/sys/fs/binfmt_misc"); err == nil {
+				f.Emulated = emulatedArchs(names)
+			}
 		}
 		if data, err := sys.ReadFile("/proc/sys/net/ipv4/ip_unprivileged_port_start"); err == nil {
 			f.UnprivPortStart, _ = strconv.Atoi(strings.TrimSpace(string(data)))
@@ -467,4 +523,95 @@ func ufwEnabled(conf string) bool {
 		}
 	}
 	return false
+}
+
+// imageRef adds the implicit :latest tag so Compose image names match RepoTags.
+func imageRef(name string) string {
+	if name == "" || strings.Contains(name, "@") {
+		return name
+	}
+	if !strings.Contains(name[strings.LastIndex(name, "/")+1:], ":") {
+		return name + ":latest"
+	}
+	return name
+}
+
+func gatherImages(ctx context.Context, sys System, f *Facts) {
+	seen := map[string]bool{}
+	var refs []string
+	add := func(ref string) {
+		if ref != "" && !seen[ref] {
+			seen[ref] = true
+			refs = append(refs, ref)
+		}
+	}
+	for _, c := range f.Containers {
+		add(c.Image)
+	}
+	if f.Project != nil {
+		for _, name := range sortedServices(f.Project) {
+			add(f.Project.Services[name].Image)
+		}
+	}
+	if len(refs) == 0 {
+		return
+	}
+	// Images that aren't pulled yet make the command fail, but the ones it
+	// found are still printed.
+	out, _, _ := sys.Run(ctx, "docker", append([]string{"image", "inspect"}, refs...)...)
+	var images []ImageInfo
+	if json.Unmarshal([]byte(strings.TrimSpace(out)), &images) != nil {
+		return
+	}
+	f.Images = map[string]ImageInfo{}
+	for _, img := range images {
+		f.Images[img.ID] = img
+		for _, tag := range img.RepoTags {
+			f.Images[tag] = img
+		}
+	}
+}
+
+func gatherLogSizes(sys System, f *Facts) {
+	if sys.FileSize == nil {
+		return
+	}
+	for _, c := range f.Containers {
+		if c.LogPath == "" {
+			continue
+		}
+		// Usually only root can read /var/lib/docker; then the size is unknown.
+		if size, err := sys.FileSize(c.LogPath); err == nil {
+			if f.LogSize == nil {
+				f.LogSize = map[string]int64{}
+			}
+			f.LogSize[c.ShortName()] = size
+		}
+	}
+}
+
+// emulatedArchs reads binfmt_misc entry names such as qemu-aarch64.
+func emulatedArchs(names []string) map[string]bool {
+	archs := map[string]bool{}
+	for _, name := range names {
+		if rest, ok := strings.CutPrefix(name, "qemu-"); ok {
+			archs[normArch(rest)] = true
+		}
+	}
+	return archs
+}
+
+// normArch maps kernel and Docker architecture names to Docker's.
+func normArch(a string) string {
+	switch strings.ToLower(a) {
+	case "x86_64", "x86-64", "amd64":
+		return "amd64"
+	case "aarch64", "arm64":
+		return "arm64"
+	case "arm", "armhf", "armv7", "armv7l":
+		return "arm"
+	case "i386", "i686", "386":
+		return "386"
+	}
+	return strings.ToLower(a)
 }

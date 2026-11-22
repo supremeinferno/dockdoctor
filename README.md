@@ -92,7 +92,9 @@ The exit code is `1` when it finds a problem, so you can use it in CI or before 
 | **Snap Docker** | Ubuntu's snap only reaches your home directory: mounts in `/opt` or `/srv` fail with `read-only file system` |
 | **Compose v2** | The old `docker-compose` v1 can't read current Compose files |
 | **Disk space** | A full Docker disk breaks pulls, databases and logs |
+| **Log size limits** | The default `json-file` driver keeps every log line forever until the disk fills |
 | **Restart loops and OOM kills** | Explains the exit code (127 = command not found, 137 = killed, 139 = wrong architecture…) |
+| **CPU architecture** | An `amd64`-only image on a Raspberry Pi or ARM VPS dies with `exec format error`, or runs slowly under emulation |
 | **Unhealthy containers** | Shows the healthcheck's last output, the reason `service_healthy` dependents never start |
 | **UFW bypass** | Docker's iptables rules sit in front of UFW, so `ufw deny` doesn't protect published ports |
 | **Compose file valid** | Shows Compose's own error |
