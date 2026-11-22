@@ -324,3 +324,16 @@ func TestWrap(t *testing.T) {
 		t.Errorf("width 0 wrapped: %q", got)
 	}
 }
+
+func TestBindMountFileBecameDirectory(t *testing.T) {
+	f := linuxFacts()
+	f.Dir = "/home/ada/app"
+	f.IsDir = func(p string) bool { return p == "/home/ada/app/nginx.conf" || p == "/home/ada/app/data" }
+	f.Project = project(t, `{"name":"app","services":{"web":{"volumes":[
+		{"type":"bind","source":"/home/ada/app/nginx.conf","target":"/etc/nginx/nginx.conf"},
+		{"type":"bind","source":"/home/ada/app/data","target":"/data"}]}}}`)
+	fd := wantOne(t, findings(t, "bind-mounts", f), Fail, "./nginx.conf is a directory")
+	if fd.Fix[1] != "rmdir ./nginx.conf && touch ./nginx.conf" {
+		t.Errorf("Fix = %v", fd.Fix)
+	}
+}

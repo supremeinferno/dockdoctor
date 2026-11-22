@@ -540,6 +540,18 @@ func checkBindMounts(f *Facts) ([]Finding, bool) {
 				continue
 			}
 			if f.Exists(v.Source) {
+				if looksLikeFile(v.Source) && f.IsDir != nil && f.IsDir(v.Source) {
+					findings = append(findings, Finding{
+						Severity: Fail,
+						Title:    fmt.Sprintf("%s is a directory, but it's mounted where a file is expected (%s)", shown, name),
+						Why: "Docker most likely created it: when a bind mount source is missing, Docker makes an empty directory there. " +
+							"The app then fails with `is a directory`, or `not a directory` when Docker tries to mount it over a file.",
+						Fix: []string{
+							"# if it's empty, replace it with the real file:",
+							"rmdir " + shown + " && touch " + shown,
+						},
+					})
+				}
 				continue
 			}
 			if looksLikeFile(v.Source) {

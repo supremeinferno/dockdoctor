@@ -1,0 +1,11 @@
+services:
+  web:
+    image: nginx:alpine
+    ports: ["8080:80"]
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  app:
+    image: busybox:1.36
+    command: ["sleep", "infinity"]
+    environment:
+      DATABASE_URL: postgres://app:${DB_PASSWORD}@db/app

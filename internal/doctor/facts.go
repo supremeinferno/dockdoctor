@@ -29,6 +29,7 @@ type System struct {
 	ListDir   func(dir string) ([]string, error)
 	FileSize  func(path string) (int64, error)
 	Exists    func(path string) bool
+	IsDir     func(path string) bool
 	PortInUse func(port int, proto string) bool
 	DiskUsage func(path string) (free, total uint64, err error)
 }
@@ -64,6 +65,10 @@ func RealSystem() System {
 				return 0, err
 			}
 			return info.Size(), nil
+		},
+		IsDir: func(path string) bool {
+			info, err := os.Stat(path)
+			return err == nil && info.IsDir()
 		},
 		Exists: func(path string) bool {
 			_, err := os.Stat(path)
@@ -143,6 +148,7 @@ type Facts struct {
 
 	PortInUse func(port int, proto string) bool
 	Exists    func(path string) bool
+	IsDir     func(path string) bool
 }
 
 // DockerInfo holds the parts of `docker info` the checks use.
@@ -347,7 +353,7 @@ var composeFileNames = []string{"compose.yaml", "compose.yml", "docker-compose.y
 // Gather collects facts. composeFiles may be empty, in which case a Compose
 // file in sys.Dir is used when there is one.
 func Gather(ctx context.Context, sys System, composeFiles []string) *Facts {
-	f := &Facts{GOOS: sys.GOOS, Home: sys.Home, Dir: sys.Dir, PortInUse: sys.PortInUse, Exists: sys.Exists}
+	f := &Facts{GOOS: sys.GOOS, Home: sys.Home, Dir: sys.Dir, PortInUse: sys.PortInUse, Exists: sys.Exists, IsDir: sys.IsDir}
 
 	path, err := sys.LookPath("docker")
 	if err != nil {

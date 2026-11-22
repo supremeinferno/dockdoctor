@@ -10,7 +10,7 @@ Your container won't start, a port won't bind, or a mount fails with `read-only 
 doesn't say why. Run `dockdoctor` in the folder with your `compose.yaml`: it checks for the usual causes and
 prints the reason and the fix for each one.
 
-![dockdoctor finding a restart loop, a busy port, a missing config file and an unset variable](docs/demo.gif)
+![docker compose up fails with a mount error; dockdoctor finds a busy port, a config file Docker turned into a directory and an unset variable; after the three fixes it starts](docs/demo.gif)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/supremeinferno/dockdoctor/main/install.sh | sh
@@ -121,7 +121,7 @@ The exit code is `1` when it finds a problem, so you can run it in CI or before 
 | **Unset variables** | `${DB_PASSWORD}` silently becomes an empty string |
 | **host.docker.internal** | Defined by Docker Desktop, not by Docker Engine on Linux, unless you add `host-gateway` |
 | **Ports free** | Finds what already holds a port before the container fails with `address already in use` |
-| **Bind mount sources** | A missing `./config.yml` becomes an empty root-owned *directory* |
+| **Bind mount sources** | A missing `./config.yml` becomes an empty root-owned *directory*, and stays one after the next failed start |
 | **Rootless ports** | Rootless Docker can't publish ports below 1024 without a sysctl |
 
 Every check comes from a problem people actually ran into and asked about.
